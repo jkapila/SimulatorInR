@@ -1,0 +1,371 @@
+---
+title: "Curve Simulator"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    theme: cerulean
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+# laoding libraries
+library(flexdashboard)
+library(ggplot2)
+library(ggthemes)
+library(plotly)
+library(gridExtra)
+library(RColorBrewer)
+
+# Simple power function
+pow <- function(x,power=2){
+  x^power
+}
+
+# Dealing wiht the power statement. As this behaves differently in R
+evaluatePow <- function(func){
+  i <- 0
+  while(stringi::stri_detect_fixed(func,"pow(")){
+    # cat("\npow detected")
+    if (stringi::stri_detect_fixed(func,"pow(val)")){
+      func <- gsub("\\pow\\(val\\)","(val^2)",func)
+      # cat("\npow(val) detected New func:",func)
+    }else if (stringi::stri_detect_fixed(func,"pow(val,powerVal)")){
+      func <- gsub("\\pow\\(val,powerVal\\)","(val^powerVal)",func)
+      # cat("\npow(val,powerVal) detected New func:",func)
+    }else if (stringi::stri_detect_fixed(func,"pow(val,valPow)")){
+      func <- gsub("\\pow\\(val,powerVal\\)","((val-valPow)^2)",func)
+      # cat("\npow(val,powerVal) detected New func:",func)
+    }else if (stringi::stri_detect_fixed(func,"pow(val,powerVal,valPow)")){
+      func <- gsub("\\pow\\(val,powerVal,valPow\\)","((val-valpow)^powerVal)",func)
+      # cat("\npow(val,powerVal,valPow) detected New func:",func)
+    }else if (stringi::stri_detect_fixed(func,"pow(val,valPow,powerVal)")){
+      func <- gsub("\\pow\\(val,valPow,powerVal\\)","((val-valpow)^powerVal)",func)
+      # cat("\npow(val,powerVal,valPow) detected New func:",func)
+    }
+    
+    if(i >20){
+      break
+    }
+    i <- i + 1
+  }
+  return(func)
+}
+
+
+# Deining the expression evaluator
+expressionEvaluator <- function(exp,func,val,powerVal,valGen,valCos,
+                                valSin,valExp,valLog,valPow){
+  # sanity checks on values
+  if (!is.na(valGen)) {
+    func = gsub("\\valGen",paste0("+",valGen),func)
+  }
+  if (!is.na(valCos)) {
+    func = gsub("\\,valCos",paste0("+",valCos),func)
+  }
+  if (!is.na(valSin)) {
+    func = gsub("\\,valSin",paste0("+",valSin),func)
+  }
+  if (!is.na(valExp)) {
+    func = gsub("\\,valExp",paste0("+",valExp),func)
+  }
+  if (!is.na(valLog)) {
+    func = gsub("\\,valLog",paste0("+",valLog),func)
+  }
+  if (!is.na(valPow)) {
+    func = gsub("\\valPow",paste0(valPow),func)
+  }
+  
+  
+  if (exp == "func"){
+    funct <- gsub("\\val",val,func)
+    if(powerVal!=0){
+      funct <- gsub("\\powerVal",powerVal,func)
+    }
+    cat(" Generated Function: ", funct)
+    funct <- eval(parse(text=funct))
+  }else if( exp %in% c("sin","cos","log","exp")) {
+    funct <- eval(parse(text=paste0(exp,"(",val,")")))
+  }else{
+    funct <- val
+  }
+  return(funct)
+}
+
+
+gendf <- reactive({
+    # generating the X data        
+    df_t <- data.frame(VarRange <- seq(from = input$xval[1], 
+                                       to = input$xval[2], 
+                                       by = 0.1))
+    colnames(df_t)[1] <- 'VarRange'
+    
+    # Applying y function on the values
+    df_t$ValRange <- sapply(df_t[,1],function(x) 
+      expressionEvaluator(input$curve,input$func,x,input$powerVal,input$valGen,
+                          input$valCos,input$valSin,input$valExp,
+                          input$valLog,input$valPow))
+    
+    # Applying inverse on values 
+    df_t$ValRangeInv <- 1/df_t$ValRange
+    
+    # Applying absolute on values 
+    df_t$ValRangeAbs <- abs(df_t$ValRange)
+    
+    # Applying inverse and absolute on values 
+    df_t$ValRangeAbsInv <- abs(1/df_t$ValRange)
+    
+    # printing output on console for testing
+    print(df_t$ValRange)
+    
+    print(summary(df_t))
+    return(list(df=df_t))
+    
+})
+
+```
+
+
+Sidebar {.sidebar data-width=300}
+=====================================
+
+```{r}
+sliderInput("xval",
+                  "Lower Range Value:",
+                  min = -10,
+                  max = 10,
+                  value = c(0,1),
+                  step = 0.5)
+selectInput("curve", "Curve:",
+            c("Sin Curve" = "sin",
+              "Cos Curve" = "cos",
+              "Exp Curve" = "exp",
+              "Log Curve" = "log",
+              "Power Curve" = "pow",
+              "Generated Curve" = "func"
+            ))
+textInput("func", "Enter Expression (Specify Values as \"val\"):", "")
+
+sliderInput("powerVal", "PowerValue:", value = c(0), min = -100, max = 100)
+sliderInput("valGen", "Generic Addition:", value = c(0), min = -100, max = 100)
+sliderInput("valCos", "Cosine Value Diff:", value = c(0), min = -100, max = 100)
+sliderInput("valSin", "Sine Value Diff:", value = c(0), min = -100, max = 100)
+sliderInput("valExp", "Exp Value Diff:", value = c(0), min = -100, max = 100)
+sliderInput("valLog", "Log Value Diff:", value = c(0), min = -100, max = 100)
+sliderInput("valPow", "Power Value Diff:", value = c(0), min = -100, max = 100)
+      
+```
+
+Simulator
+=====================================  
+
+Column {data-width=500}
+-----------------------------------------------------------------------
+
+### Plot of Curve Equation As It Is!
+
+```{r}
+renderPlotly({
+    
+  df_t <- gendf()$df
+    f <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+    cols <- f("Pastel1")
+    
+    # plotting graph
+    p1 <- ggplot(data = df_t, aes( x = VarRange , y = ValRange)) +
+      geom_line(size = 2,color = cols[1]) + geom_point() +
+      xlab("Input Range") +
+      ylab("Values") +
+      #ggtitle(paste("Plot of Curve Equation As It Is!")) +
+      # theme(axis.text = element_text(size = 10)) +
+      theme(title = element_text(face="bold",size = 15))+
+      # theme_minimal() + scale_colour_hc
+      theme_gdocs() + scale_color_gdocs()
+    
+    return(ggplotly(p1))
+})
+
+```
+
+### Plot of Curve Equation As Inversed!
+
+```{r}
+renderPlotly({
+    
+  df_t <- gendf()$df
+    f <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+    cols <- f("Pastel1")
+    
+    # plotting graph
+   p2 <- ggplot(data = df_t, aes( x = VarRange , y = ValRangeInv)) +
+      geom_line(size = 2,color = cols[2]) + geom_point() +
+      xlab("Input Range") +
+      ylab("Values") +
+      #ggtitle(paste("Plot of Curve Equation As Inversed")) +
+      # theme(axis.text = element_text(size = 10)) +
+      theme(title = element_text(face="bold",size = 15))+
+      theme_gdocs() + scale_color_gdocs()
+    
+    return(ggplotly(p2))
+})
+
+```
+
+Column {data-width=500}
+-----------------------------------------------------------------------
+
+### Plot of Curve Equation As Absolute!
+
+```{r}
+renderPlotly({
+    
+  df_t <- gendf()$df
+    f <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+    cols <- f("Pastel1")
+    
+    # plotting graph
+    p3 <- ggplot(data = df_t, aes( x = VarRange , y = ValRangeAbs)) +
+      geom_line(size = 2,color = cols[3]) + geom_point() +
+      xlab("Input Range") +
+      ylab("Values") +
+      #ggtitle(paste("Plot of Curve Equation As Absolute")) +
+      # theme(axis.text = element_text(size = 10)) +
+      theme(title = element_text(face="bold",size = 15))+
+      theme_gdocs() + scale_color_gdocs()
+    
+    return(ggplotly(p3))
+})
+
+```
+
+### Plot of Curve Equation As Inversed and Absolute!
+
+```{r}
+renderPlotly({
+    
+  df_t <- gendf()$df
+    f <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+    cols <- f("Pastel1")
+    
+    # plotting graph
+    p4 <- ggplot(data = df_t, aes( x = VarRange , y = ValRangeAbsInv)) +
+      geom_line(size = 2,color = cols[4]) + geom_point() +
+      xlab("Input Range") +
+      ylab("Values") +
+      #ggtitle(paste("Plot of Curve Equation As Inversed and Absolute")) +
+      # theme(axis.text = element_text(size = 10)) +
+      theme(title = element_text(face="bold",size = 15))+
+      theme_gdocs() + scale_color_gdocs()
+    
+    return(ggplotly(p4))
+})
+
+```
+
+Examples
+=====================================     
+
+### Plot of Curve Equation As It Is!
+
+```{r}
+renderPlotly({
+    
+  df_t <- gendf()$df
+    f <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+    cols <- f("Pastel1")
+    
+    # plotting graph
+    p1 <- ggplot(data = df_t, aes( x = VarRange , y = ValRange)) +
+      geom_line(size = 2,color = cols[1]) + geom_point() +
+      xlab("Input Range") +
+      ylab("Values") +
+      #ggtitle(paste("Plot of Curve Equation As It Is!")) +
+      # theme(axis.text = element_text(size = 10)) +
+      theme(title = element_text(face="bold",size = 15))+
+      # theme_minimal() + scale_colour_hc
+      theme_gdocs() + scale_color_gdocs()
+    
+    return(ggplotly(p1))
+})
+
+```
+
+### Plot of Curve Equation As Inversed!
+
+```{r}
+renderPlotly({
+    
+  df_t <- gendf()$df
+    f <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+    cols <- f("Pastel1")
+    
+    # plotting graph
+   p2 <- ggplot(data = df_t, aes( x = VarRange , y = ValRangeInv)) +
+      geom_line(size = 2,color = cols[2]) + geom_point() +
+      xlab("Input Range") +
+      ylab("Values") +
+      #ggtitle(paste("Plot of Curve Equation As Inversed")) +
+      # theme(axis.text = element_text(size = 10)) +
+      theme(title = element_text(face="bold",size = 15))+
+      theme_gdocs() + scale_color_gdocs()
+    
+    return(ggplotly(p2))
+})
+
+```
+
+Column {data-width=500}
+-----------------------------------------------------------------------
+
+```{r}
+
+```
+
+
+### Plot of Curve Equation As Absolute!
+
+```{r}
+renderPlotly({
+    
+  df_t <- gendf()$df
+    f <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+    cols <- f("Pastel1")
+    
+    # plotting graph
+    p3 <- ggplot(data = df_t, aes( x = VarRange , y = ValRangeAbs)) +
+      geom_line(size = 2,color = cols[3]) + geom_point() +
+      xlab("Input Range") +
+      ylab("Values") +
+      #ggtitle(paste("Plot of Curve Equation As Absolute")) +
+      # theme(axis.text = element_text(size = 10)) +
+      theme(title = element_text(face="bold",size = 15))+
+      theme_gdocs() + scale_color_gdocs()
+    
+    return(ggplotly(p3))
+})
+
+```
+
+### Plot of Curve Equation As Inversed and Absolute!
+
+```{r}
+renderPlotly({
+    
+  df_t <- gendf()$df
+    f <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+    cols <- f("Pastel1")
+    
+    # plotting graph
+    p4 <- ggplot(data = df_t, aes( x = VarRange , y = ValRangeAbsInv)) +
+      geom_line(size = 2,color = cols[4]) + geom_point() +
+      xlab("Input Range") +
+      ylab("Values") +
+      #ggtitle(paste("Plot of Curve Equation As Inversed and Absolute")) +
+      # theme(axis.text = element_text(size = 10)) +
+      theme(title = element_text(face="bold",size = 15))+
+      theme_gdocs() + scale_color_gdocs()
+    
+    return(ggplotly(p4))
+})
+
+```
