@@ -1,0 +1,284 @@
+---
+title: "Distribution Simulator"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+    theme: readable
+    social: menu
+    source_code: embed
+    
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+
+# laoding libraries
+library(flexdashboard)
+library(ggplot2)
+library(ggthemes)
+library(plotly)
+library(gridExtra)
+library(RColorBrewer)
+
+knitr::opts_chunk$set(message = FALSE)
+
+# TODOs:
+# todo: Need to change its behaviour for p,q,d,r
+# todo: Need to change expression evaluation for smaller distributions
+# todo: Need to add dy/dx, erf, cdf and other values like Mean, SD , etc of the polted values
+
+# Data Generating function
+gendf <- reactive({
+  
+    # generating the X data
+    
+    df_t <- data.frame(VarRange <- seq(from = input$xval[1], 
+                                       to = input$xval[2], 
+                                       by = 0.05))
+    colnames(df_t)[1] <- 'VarRange'
+    
+    # getting distribution
+    distribution <- paste0(input$type,input$distr)
+    cat("Distribution is: ",distribution,"\n")
+    
+    # Evaluating expression on various distribution
+    if(length(formals(distribution)) == 4 && names(formals(distribution))[4] != 'log'){
+      express <- paste0(distribution,"(c(",paste(df_t[,1],collapse = ","),"),",input$val1,",",input$val2,",",input$val3,")")
+    }else if(length(formals(distribution)) == 4 && names(formals(distribution))[4] == 'log'){
+      express <- paste0(distribution,"(c(",paste(df_t[,1],collapse = ","),"),",input$val1,",",input$val2,",",input$logp,")")
+    }else if(length(formals(distribution)) == 4 && names(formals(distribution))[4] == 'log.p'){
+      express <- paste0(distribution,"(c(",paste(df_t[,1],collapse = ","),"),",input$val1,",",input$tail,",",input$logp,")")
+    }else if(length(formals(distribution)) == 5 && names(formals(distribution))[5] == 'log'){
+      express <- paste0(distribution,"(c(",paste(df_t[,1],collapse = ","),"),",input$val1,",",input$val2,",",input$val3,",",input$logp,")")
+    }else if(length(formals(distribution)) == 5 && names(formals(distribution))[5] != 'log'){
+      express <- paste0(distribution,"(c(",paste(df_t[,1],collapse = ","),"),",input$val1,",",input$val2,",",input$tail,",",input$logp,")")
+    }else if(length(formals(distribution)) == 3 && names(formals(distribution))[3] != 'log'){
+      express <- paste0(distribution,"(c(",paste(df_t[,1],collapse = ","),"),",input$val1,",",input$val2,")")
+    }else if(length(formals(distribution)) == 3 && names(formals(distribution))[3] == 'log'){
+      express <- paste0(distribution,"(c(",paste(df_t[,1],collapse = ","),"),",input$val1,",",input$tail,")")
+    }else if(length(formals(distribution)) == 6 && names(formals(distribution))[6] == 'log.p'){
+      express <- paste0(distribution,"(c(",paste(df_t[,1],collapse = ","),"),",input$val1,",",input$val2,",",input$val3,",",input$tail,",",input$logp,")")
+    }else if(length(formals(distribution)) == 2 ){
+      express <- paste0(distribution,"(c(",paste(df_t[,1],collapse = ","),"),",input$val1,")")
+    }
+    cat("Expression: ",express,"\n")
+    
+    # Creating Data
+    df_t$ValRange <- eval(parse(text = express))
+    
+    # Applying inverse on values 
+    df_t$ValRangeInv <- 1/df_t$ValRange
+    
+    # Applying absolute on values 
+    df_t$ValRangeAbs <- abs(df_t$ValRange)
+    
+    # Applying inverse and absolute on values 
+    df_t$ValRangeAbsInv <- abs(1/df_t$ValRange)
+    
+    # printing output on console for testing
+    print(df_t$ValRange)
+    
+    print(summary(df_t))
+    return(list(df=df_t))
+    
+})
+
+```
+
+
+Sidebar {.sidebar data-width=300}
+=====================================
+
+```{r}
+sliderInput("xval",
+                  "Lower Range Value:",
+                  min = -10,
+                  max = 10,
+                  value = c(0,1),
+                  step = 0.5)
+selectInput("distr", "Distribution:",
+            c("Beta" = "beta",
+              "Binomial" = "binom",
+              "Cauchy" = "cauchy",
+              "Chi-Square" = "chisq",
+              "Exponential" = "exp",
+              "F" = "f",
+              "Gamma" = "gamma",
+              "Geometric" = "geom",
+              "Hypergeometric" = "hyper",
+              "Logistic" = "logis",
+              "Log Normal" = "lnorm",
+              "Negative Binomial" = "nbinom",
+              "Normal" = "norm",
+              "Poisson" = "pois",
+              "Student t" = "t",
+              "Studentized Range" = "tukey",
+              "Uniform" = "unif",
+              "Weibull" = "weibull",
+              "Wilcoxon Rank Sum Statistic" = "wilcox",
+              "Wilcoxon Signed Rank Statistic" = "signrank",
+              "Generated Distribution" = "func"
+            ))
+
+selectInput("type", " Type:",
+            c("Probability" = "p",
+              "Quantile" = "q",
+              "Density" = "d",
+              "Random" = "r"
+            ))
+
+textInput("func", "Enter Expression (Specify Values as \"val\"):", "")
+
+sliderInput("val1", "Mean/Shape/Shape1/Size/Min/Loaction/Lambda:", value = c(0), min = -100, max = 100)
+sliderInput("val2", "SD/Rate/Shape2/Prob/Scale/Max", value = c(0), min = -100, max = 100)
+sliderInput("val3", "K/NCP", value = c(0), min = -100, max = 100)
+checkboxInput("tail", "P[ X less than or equal to x ] or P[ X greater than x ]", value = TRUE)
+checkboxInput("logp", "Log of Probability", value = TRUE)
+
+
+```
+
+Simulator
+=====================================  
+
+Rows {data-height=400}
+-----------------------------------------------------------------------
+
+### Plot of Curve Equation As It Is!
+
+```{r}
+renderPlotly({
+    
+    df_t <- gendf()$df
+    f <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+    cols <- f("Pastel1")
+    
+    # plotting graph
+    p1 <- ggplot(data = df_t, aes( x = VarRange , y = ValRange)) +
+      geom_line(size = 2,color = cols[1]) + geom_point() +
+      xlab("Input Range") +
+      ylab("Values") +
+      #ggtitle(paste("Plot of Curve Equation As It Is!")) +
+      # theme(axis.text = element_text(size = 10)) +
+      theme(title = element_text(face="bold",size = 15))+
+      # theme_minimal() + scale_colour_hc
+      theme_gdocs() + scale_color_gdocs()
+    
+    return(ggplotly(p1))
+})
+
+```
+
+### Plot of Curve Equation As Inversed!
+
+```{r}
+renderPlotly({
+    
+  df_t <- gendf()$df
+    f <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+    cols <- f("Pastel1")
+    
+    # plotting graph
+   p2 <- ggplot(data = df_t, aes( x = VarRange , y = ValRangeInv)) +
+      geom_line(size = 2,color = cols[2]) + geom_point() +
+      xlab("Input Range") +
+      ylab("Values") +
+      #ggtitle(paste("Plot of Curve Equation As Inversed")) +
+      # theme(axis.text = element_text(size = 10)) +
+      theme(title = element_text(face="bold",size = 15))+
+      theme_gdocs() + scale_color_gdocs()
+    
+    return(ggplotly(p2))
+})
+
+```
+
+Row {data-height=400}
+-----------------------------------------------------------------------
+
+### Plot of Curve Equation As Absolute!
+
+```{r}
+renderPlotly({
+    
+  df_t <- gendf()$df
+    f <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+    cols <- f("Pastel1")
+    
+    # plotting graph
+    p3 <- ggplot(data = df_t, aes( x = VarRange , y = ValRangeAbs)) +
+      geom_line(size = 2,color = cols[3]) + geom_point() +
+      xlab("Input Range") +
+      ylab("Values") +
+      #ggtitle(paste("Plot of Curve Equation As Absolute")) +
+      # theme(axis.text = element_text(size = 10)) +
+      theme(title = element_text(face="bold",size = 15))+
+      theme_gdocs() + scale_color_gdocs()
+    
+    return(ggplotly(p3))
+})
+
+```
+
+### Plot of Curve Equation As Inversed and Absolute!
+
+```{r}
+renderPlotly({
+    
+  df_t <- gendf()$df
+    f <- function(pal) brewer.pal(brewer.pal.info[pal, "maxcolors"], pal)
+    cols <- f("Pastel1")
+    
+    # plotting graph
+    p4 <- ggplot(data = df_t, aes( x = VarRange , y = ValRangeAbsInv)) +
+      geom_line(size = 2,color = cols[4]) + geom_point() +
+      xlab("Input Range") +
+      ylab("Values") +
+      #ggtitle(paste("Plot of Curve Equation As Inversed and Absolute")) +
+      # theme(axis.text = element_text(size = 10)) +
+      theme(title = element_text(face="bold",size = 15))+
+      theme_gdocs() + scale_color_gdocs()
+    
+    return(ggplotly(p4))
+})
+
+```
+
+Help on Distribution
+=====================================  
+
+Row {data-height=200}
+-----------------------------------------------------------------------
+
+```{r}
+help_console <- function(topic, format=c("text", "html", "latex", "Rd"),
+                         lines=NULL, before=NULL, after=NULL) {  
+  format=match.arg(format)
+  if (!is.character(topic)) topic <- deparse(substitute(topic))
+  helpfile = utils:::.getHelpFile(help(topic))
+
+  hs <- capture.output(switch(format, 
+                              text=tools:::Rd2txt(helpfile),
+                              html=tools:::Rd2HTML(helpfile),
+                              latex=tools:::Rd2latex(helpfile),
+                              Rd=tools:::prepare_Rd(helpfile)
+                              )
+                      )
+  if(!is.null(lines)) hs <- hs[lines]
+  hs <- c(before, hs, after)
+  # cat(hs, sep="\n")
+  # invisible(hs)
+  return(paste(hs,collapse = " "))
+}
+# help_console("dbeta","html")
+
+renderUI({
+  distribution <- paste0(input$type,input$distr)
+  HTML(help_console(distribution,"html"))
+
+})
+
+
+
+```
