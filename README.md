@@ -7,12 +7,12 @@ To use simulator:
 1) Download intrest Simulator.
 
 2) Make Sure atleast following basic packages are installed:
-library(flexdashboard)
-library(ggplot2)
-library(ggthemes)
-library(plotly)
-library(gridExtra)
-library(RColorBrewer)
+* library(flexdashboard)
+* library(ggplot2)
+* library(ggthemes)
+* library(plotly)
+* library(gridExtra)
+* library(RColorBrewer)
 
 3) Once you have above, use 'Run Document' or 'Knit' directly from RStudio to start the simulator.
 
